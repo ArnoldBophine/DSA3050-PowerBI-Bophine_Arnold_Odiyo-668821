@@ -52,64 +52,94 @@ The raw file was imported via **Get Data → Text/CSV → Transform Data**, land
 <img width="1910" height="1070" alt="Screenshot 2026-08-15 101233" src="https://github.com/user-attachments/assets/79395800-e4e2-4622-a47e-017d6455a2cf" />
 <img width="1919" height="1076" alt="01_raw_data" src="https://github.com/user-attachments/assets/7f198d6e-edef-4a08-827e-c0278fea00ca" />
 
-### Transformation 1 — Remove junk column
+### Transformation 1 — Removing junk column
 **Problem:** The column `记录数` contained the constant value `1` for every row and carried no analytical meaning.
+
 **Transformation:** Right-click the column → Remove.
+
 **Reason:** A constant column adds no information and pollutes the model.
+
 **Result:** Table reduced from 27 to 26 useful columns.
 
-### Transformation 2 — Resolve redundant geography column
+### Transformation 2 — Resolving redundant geography column
 **Problem:** `Market2` duplicated `Market` at a coarser grain (e.g. `Market2 = "North America"` when `Market = "US"` or `"Canada"`).
+
 **Transformation:** Retained `Market2`, renamed to `MarketGroup`, and kept it as a second, coarser level of a Market → MarketGroup hierarchy in `DimLocation`.
+
 **Reason:** Rather than discard information, the two fields form a legitimate two-level geography hierarchy once clearly distinguished and renamed.
+
 **Result:** A clean Market/MarketGroup hierarchy instead of two ambiguous, seemingly duplicate fields.
 
-### Transformation 3 — Fix data types across all columns
+### Transformation 3 — Fixing data types across all columns
 **Problem:** Several columns imported with incorrect or ambiguous types — dates as text, IDs at risk of being auto-detected as numeric, currency fields needing explicit decimal typing.
+
 **Transformation:** Set `Order.Date`/`Ship.Date` to **Date**; `Sales`, `Profit`, `Discount`, `Shipping.Cost` to **Decimal Number**; `Quantity`, `Row.ID`, `Year`, `weeknum` to **Whole Number**; and manually verified all four ID fields (`Order.ID`, `Customer.ID`, `Product.ID`, `Row.ID` excepted, as it's a genuine index) are locked to **Text**.
+
 **Reason:** Power BI cannot perform date intelligence or correct aggregation on text-typed fields, and ID fields must never be summed/averaged or have leading characters silently altered by numeric typing.
+
 **Result:** All fields carry correct, model-ready data types; ID fields are protected against future refresh-time misclassification.
 
-### Transformation 4 — Rename fields to a consistent naming convention
+### Transformation 4 — Renaming fields to a consistent naming convention
 **Problem:** Column names used dot-notation (`Order.Date`, `Customer.ID`, `Sub.Category`), inconsistent with standard Power BI/DAX naming and harder to reference in formulas.
+
 **Transformation:** Renamed to PascalCase: `OrderDate`, `ShipDate`, `CustomerID`, `ProductID`, `OrderID`, `SubCategory`, `OrderPriority`, `ShipMode`, `ShippingCost`, `RowID`.
+
 **Reason:** Clean, consistent naming is easier to reference in DAX and reads more professionally in visuals.
+
 **Result:** All fields follow one naming convention throughout the model.
 
-### Transformation 5 — Create Shipping Duration column
+### Transformation 5 — Creating Shipping Duration column
 **Problem:** No direct measure of delivery speed existed, despite both order and ship dates being present.
+
 **Transformation:** Custom column: `ShippingDurationDays = Duration.Days([ShipDate] - [OrderDate])`.
+
 **Reason:** Enables analysis of whether specific regions, ship modes, or priority levels experience slower fulfilment.
+
 **Result:** New whole-number column, typically ranging 0–7 days.
 
-### Transformation 6 — Create Profitability Flag column
+### Transformation 6 — Creating Profitability Flag column
 **Problem:** No categorical field existed to quickly filter or count loss-making versus profitable line items.
+
 **Transformation:** Conditional column: `ProfitFlag = if [Profit] < 0 then "Loss" else if [Profit] = 0 then "Break-even" else "Profit"`.
+
 **Reason:** Enables fast categorical slicing and counting for the diagnostic dashboard page.
+
 **Result:** New text column with three categories, used throughout Section 3 of the analysis.
 
-### Transformation 7 — Create Discount Band column
+### Transformation 7 — Creating Discount Band column
 **Problem:** `Discount` is a continuous decimal (0–0.85), difficult to use directly in bar charts or slicers.
+
 **Transformation:** Conditional column grouping discount into `No Discount`, `Low (0-20%)`, `Medium (20-50%)`, `High (50%+)`.
+
 **Reason:** Groups a continuous variable into business-meaningful bands for clearer visual analysis of discount impact on margin.
+
 **Result:** New categorical column, central to the discount-vs-profitability diagnostic finding.
 
-### Transformation 8 — Split OrderID into component parts
+### Transformation 8 — Spliting OrderID into component parts
 **Problem:** `OrderID` (e.g. `SU-2012-6840`) packs a market/region prefix, order year, and sequence number into one text field, making these embedded attributes unfilterable.
+
 **Transformation:** Split by delimiter (`-`) into `OrderMarketCode`, `OrderYearFromID`, `OrderSequence`.
+
 **Reason:** Exposes the embedded region code as a filterable attribute and allows cross-validation against `OrderDate`'s year.
+
 **Result:** Three new columns; confirmed 100% pattern consistency across all 51,290 rows.
 
-### Transformation 9 — Verify and lock ID column types
+### Transformation 9 — Verifying and lock ID column types
 **Problem:** Power BI's type auto-detection can silently misclassify ID columns as numeric, which breaks joins and can strip meaningful leading characters.
+
 **Transformation:** Manually verified and explicitly locked all ID columns (`OrderID`, `CustomerID`, `ProductID`) to Text type.
+
 **Reason:** IDs are labels, not quantities, and should never be summed/averaged; locking the type prevents future data refreshes from silently reclassifying them.
+
 **Result:** Stable relationship keys across refreshes.
 
-### Transformation 10 — Remove duplicate rows
+### Transformation 10 — Removing duplicate rows
 **Problem:** Data integrity needed to be verified before modelling.
+
 **Transformation:** Select all columns → Remove Rows → Remove Duplicates.
+
 **Reason:** Standard data-quality check prior to building relationships.
+
 **Result:** 0 duplicate rows found, confirming the source data's integrity.
 
 <img width="1913" height="1078" alt="02_power_query" src="https://github.com/user-attachments/assets/d1d076e2-de78-4df7-a808-b3055bf40720" />
@@ -122,7 +152,7 @@ The raw file was imported via **Get Data → Text/CSV → Transform Data**, land
 
 The data was transformed from a single flat table into a **star schema** consisting of one fact table and four dimension tables, connected by one-to-many relationships.
 
-**`FactSales`** contains transactional information and forms the centre of the model. Each row represents one order line item, carrying the transaction's foreign keys (`OrderID`, `OrderDate`, `CustomerID`, `ProductID`, `LocationKey`) alongside all numeric measures (`Sales`, `Profit`, `Discount`, `Quantity`, `ShippingCost`, `ShippingDurationDays`) and transaction-level flags (`ProfitFlag`, `DiscountBand`).
+**FactSales** contains transactional information and forms the centre of the model. Each row represents one order line item, carrying the transaction's foreign keys (`OrderID`, `OrderDate`, `CustomerID`, `ProductID`, `LocationKey`) alongside all numeric measures (`Sales`, `Profit`, `Discount`, `Quantity`, `ShippingCost`, `ShippingDurationDays`) and transaction-level flags (`ProfitFlag`, `DiscountBand`).
 
 **`DimDate`**, **`DimCustomer`**, **`DimProduct`**, and **`DimLocation`** provide descriptive attributes used to filter and group the fact table. One-to-many relationships were established between each dimension and the fact table, with `DimDate` additionally marked as the model's official Date Table to support time-intelligence calculations.
 
@@ -132,10 +162,13 @@ The data was transformed from a single flat table into a **star schema** consist
 
 ### Why each dimension was created
 
-- **`DimDate`** was created because the fact table's raw date fields (`OrderDate`, `ShipDate`) alone cannot support time-intelligence functions like `SAMEPERIODLASTYEAR` or produce chronologically-sorted axes without a dedicated, continuous calendar table. `DimDate` was built as a complete continuous calendar from 2011-01-01 to 2014-12-31, rather than only the distinct dates present in the order data, to avoid gaps in trend visuals and ensure accurate YoY calculations.
-- **`DimCustomer`** was created to hold customer-level attributes (`CustomerName`, `Segment`) once per unique customer, rather than repeating this text on every one of that customer's order lines. This supports customer-level and segment-level analysis without redundant storage.
-- **`DimProduct`** was created to hold product-level attributes (`ProductName`, `Category`, `SubCategory`) once per unique product, enabling the product-profitability analysis (Section 2 of the accompanying BI report) without repeating category/sub-category text across every transaction involving that product.
-- **`DimLocation`** was created to hold geographic attributes (`Country`, `State`, `City`, `Region`, `Market`, `MarketGroup`) once per unique location combination, supporting the regional and market-level diagnostic analysis.
+- **DimDate** was created because the fact table's raw date fields (`OrderDate`, `ShipDate`) alone cannot support time-intelligence functions like `SAMEPERIODLASTYEAR` or produce chronologically-sorted axes without a dedicated, continuous calendar table. `DimDate` was built as a complete continuous calendar from 2011-01-01 to 2014-12-31, rather than only the distinct dates present in the order data, to avoid gaps in trend visuals and ensure accurate YoY calculations.
+  
+- **DimCustomer** was created to hold customer-level attributes (`CustomerName`, `Segment`) once per unique customer, rather than repeating this text on every one of that customer's order lines. This supports customer-level and segment-level analysis without redundant storage.
+  
+- **DimProduct** was created to hold product-level attributes (`ProductName`, `Category`, `SubCategory`) once per unique product, enabling the product-profitability analysis (Section 2 of the accompanying BI report) without repeating category/sub-category text across every transaction involving that product.
+  
+- **DimLocation** was created to hold geographic attributes (`Country`, `State`, `City`, `Region`, `Market`, `MarketGroup`) once per unique location combination, supporting the regional and market-level diagnostic analysis.
 
 ### Relationships used
 
@@ -159,8 +192,10 @@ All relationships use **single-direction** cross-filtering (dimension filters fa
 ### Modelling challenges encountered
 
 1. **No natural key for location.** The source data has no single column uniquely identifying a location, so a composite `LocationKey` (Country|State|City) was engineered in Power Query and applied consistently to both `DimLocation` and `FactSales`.
-2. **Reference-query dependency cascade.** Initially, trimming descriptive columns directly out of the main query broke the dimension queries that referenced the same source, because Power Query reference queries evaluate against the live, final output of their source rather than a snapshot taken at creation time. This was resolved by introducing an intermediate `Staging` query (load disabled) holding the full cleaned column set, with `FactSales` and all four dimension tables built as independent references from `Staging` rather than from each other — decoupling them so any one table could be trimmed without breaking the others.
-3. **Two competing ship-date relationships.** `DimDate[Date]` could theoretically relate to either `FactSales[OrderDate]` or `FactSales[ShipDate]`, but Power BI only permits one active relationship between two tables. The relationship to `OrderDate` was kept active (since order-date-based analysis was the primary requirement); a relationship to `ShipDate` was not created, since it wasn't required for this project's core measures.
+   
+3. **Reference-query dependency cascade.** Initially, trimming descriptive columns directly out of the main query broke the dimension queries that referenced the same source, because Power Query reference queries evaluate against the live, final output of their source rather than a snapshot taken at creation time. This was resolved by introducing an intermediate `Staging` query (load disabled) holding the full cleaned column set, with `FactSales` and all four dimension tables built as independent references from `Staging` rather than from each other — decoupling them so any one table could be trimmed without breaking the others.
+   
+5. **Two competing ship-date relationships.** `DimDate[Date]` could theoretically relate to either `FactSales[OrderDate]` or `FactSales[ShipDate]`, but Power BI only permits one active relationship between two tables. The relationship to `OrderDate` was kept active (since order-date-based analysis was the primary requirement); a relationship to `ShipDate` was not created, since it wasn't required for this project's core measures.
 
 
 
@@ -234,14 +269,17 @@ VAR TotalSalesAll = CALCULATE([Total Sales], ALL(DimProduct[Category]))
 RETURN DIVIDE(CategorySales, TotalSalesAll, 0)
 ```
 *What it calculates:* Each category's share of total sales within the current filter context.
+
 *Why useful:* Shows relative contribution without needing a separate "grand total" visual.
+
 *Main DAX functions:* `VAR`/`RETURN`, `CALCULATE`, `ALL`, `DIVIDE`.
+
 *Filter context:* `ALL(DimProduct[Category])` removes only the Category filter, so if a Year or Region slicer is also active, the denominator respects that slicer while still summing across all categories — giving contribution-within-context rather than contribution against the unfiltered grand total.
+
 *Used in:* Page 2 category breakdown visuals.
 
 *(Additional measures — `Total Profit`, `Total Transactions`, `Average Order Value`, `Distinct Customers`, `Avg Shipping Duration`, `High Discount Sales`, `Shipping Speed Segment`, and others — are implemented in the model; see the Measures table in the .pbix file for the complete list of 12+ measures.)*
 
----
 
 ## 5. Dashboard Design
 
